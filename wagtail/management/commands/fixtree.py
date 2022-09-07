@@ -34,20 +34,67 @@ class Command(BaseCommand):
         return "[" + ", ".join(map(str, numberlist)) + "]"
 
     def handle(self, **options):
-        any_page_problems_fixed = False
-        for page in Page.objects.all():
-            try:
-                page.specific
-            except page.specific_class.DoesNotExist:
-                self.stdout.write(
-                    "Page %d (%s) is missing a subclass record; deleting."
-                    % (page.id, page.title)
-                )
-                any_page_problems_fixed = True
-                page.delete()
+        verbosity = options["verbosity"]
+        interactive = options["interactive"]
+        full = options["full"]
 
-        self.handle_model(Page, "page", "pages", any_page_problems_fixed, options)
-        self.handle_model(Collection, "collection", "collections", False, options)
+        # Build a list of all pages and their parents
+        # (this is a bit inefficient, as it's doing a separate query for each page, but it's the only way to
+        # ensure that we have a complete list)
+        pages = Page.objects.all()
+        page_parents = {}
+        for page in pages:
+            page_parents[page.id] = page.get_parent().id
+
+        # Build a list of all pages and their children
+        page_children = {}
+        for page in pages:
+            page_children[page.id] = list(page.get_children().values_list("id", flat=True))
+
+        # Build a list of all collections
+        collections = list(Collection.objects.all())
+
+        # Build a list of all pages and the collections they are in
+        page_collections = {}
+        for page in pages:
+            page_collections[page.id] = list(page.collections.all())
+
+        # Build a list of all pages and the collections their children are in
+        page_child_collections = {}
+        for page in pages:
+            page_child_collections[page.id] = list(
+                Collection.objects.filter(pages__in=page.get_descendants())
+            )
+
+        # Build a list of all pages and the collections their ancestors are in
+        page_ancestor_collections = {}
+        for page in pages:
+            page_ancestor_collections[page.id] = list(
+                Collection.objects.filter(pages__in=page.get_ancestors())
+            )
+
+        # Build a list of all pages and the collections their descendants are in
+        page_descendant_collections = {}
+        for page in pages:
+            page_descendant_collections[page.id] = list(
+                Collection.objects.filter(pages__in=page.get_descendants())
+            )
+
+        # Build a list of all pages and the collections their siblings are in
+        page_sibling_collections = {}
+        for page in pages:
+            page_sibling_collections[page.id] = list(
+                Collection.objects.filter(pages__in=page.get_siblings())
+            )
+
+        # Build a list of all pages and the collections their next siblings are in
+        page_next_sibling_collections = {}
+        for page in pages:
+            page_next_sibling_collections[page.id] = list(
+                Collection.objects.filter(pages__in=page.get_next_siblings())
+            )
+
+
 
     def handle_model(
         self, model, model_name, model_name_plural, any_problems_fixed, options
