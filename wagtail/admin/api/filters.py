@@ -28,17 +28,16 @@ class HasChildrenFilter(BaseFilterBackend):
 
 class ForExplorerFilter(BaseFilterBackend):
     def filter_queryset(self, request, queryset, view):
-        if request.GET.get("for_explorer"):
-            if not hasattr(queryset, "_filtered_by_child_of"):
-                raise BadRequestError(
-                    "filtering by for_explorer without child_of is not supported"
-                )
+        
+        if "for_explorer" in request.GET:
+            try:
+                for_explorer_filter = parse_boolean(request.GET["for_explorer"])
+            except ValueError:
+                raise BadRequestError("for_explorer must be 'true' or 'false'")
 
-            parent_page = queryset._filtered_by_child_of
-            for hook in hooks.get_hooks("construct_explorer_page_queryset"):
-                queryset = hook(parent_page, queryset, request)
-
-            user_perms = UserPagePermissionsProxy(request.user)
-            queryset = user_perms.explorable_pages() & queryset
+            if for_explorer_filter is True:
+                return queryset.filter(depth__gte=2)
+            else:
+                return queryset.filter(depth=1)
 
         return queryset
