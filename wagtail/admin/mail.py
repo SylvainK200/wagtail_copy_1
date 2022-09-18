@@ -124,9 +124,6 @@ def send_moderation_notification(revision, notification, excluded_user=None):
                 "pk", flat=True
             )
         )
-
-
-
 def send_notification(recipient_users, notification, extra_context):
     # Get list of email addresses
     recipient_emails = [

@@ -111,7 +111,7 @@ class AvatarPreferencesForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self._original_avatar = self.instance.avatar
 
-    ef save(self, commit=True):
+    def save(self, commit=True):
         instance = super().save(commit)
         if instance.avatar != self._original_avatar:
             # delete old avatar

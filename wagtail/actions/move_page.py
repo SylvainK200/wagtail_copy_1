@@ -37,65 +37,60 @@ class MovePageAction:
 
         # Determine old and new url_paths
         # Fetching new object to avoid affecting `page`
-        parent_before = page.get_parent()
-        old_page = Page.objects.get(id=page.id)
-        old_url_path = old_page.url_path
-        new_url_path = old_page.set_url_path(parent=parent_after)
-        url_path_changed = old_url_path != new_url_path
+        page = Page.objects.get(id=page.id)
+        old_url_path = page.url_path
+        old_path = page.path
+        old_depth = page.depth
 
-        # Emit pre_page_move signal
-        pre_page_move.send(
-            sender=page.specific_class or page.__class__,
-            instance=page,
-            parent_page_before=parent_before,
-            parent_page_after=parent_after,
-            url_path_before=old_url_path,
-            url_path_after=new_url_path,
-        )
+        if self.pos == "first-child":
+            new_path = parent_after.path + "0001"
+        elif self.pos == "last-child":
+            new_path = parent_after.path + "%04d" % (parent_after.get_children_count() + 1)
+        elif self.pos == "sorted-child":
+            new_path = parent_after.path + "%04d" % (
+                target.get_next_siblings().count() + 1
+            )
+        else:
+            new_path = target.path
 
-        # Only commit when all descendants are properly updated
+        # Move the page
         with transaction.atomic():
-            # Allow treebeard to update `path` values
-            MP_MoveHandler(page, target, self.pos).process()
+            pre_page_move.send(sender=page.specific_class, instance=page, user=self.user)
 
-            # Treebeard's move method doesn't actually update the in-memory instance,
-            # so we need to work with a freshly loaded one now
-            new_page = Page.objects.get(id=page.id)
-            new_page.url_path = new_url_path
-            new_page.save()
+            # Move the page
+            page.move(new_path, pos=self.pos)
 
-            # Update descendant paths if url_path has changed
-            if url_path_changed:
-                new_page._update_descendant_url_paths(old_url_path, new_url_path)
+            # Update the url_path of the page and all its descendants
+            page.url_path = page.get_url_path()
+            page.save()
 
-        # Emit post_page_move signal
-        post_page_move.send(
-            sender=page.specific_class or page.__class__,
-            instance=new_page,
-            parent_page_before=parent_before,
-            parent_page_after=parent_after,
-            url_path_before=old_url_path,
-            url_path_after=new_url_path,
-        )
+            # Update the url_paths of all pages that were moved as a result of this operation
+            for moved_page in Page.objects.filter(path__startswith=old_path).exclude(
+                path=old_path
+            ):
+                moved_page.url_path = moved_page.get_url_path()
+                moved_page.save()
 
-        # Log
+            post_page_move.send(
+                sender=page.specific_class, instance=page, user=self.user
+            )
+
+        # Log the action
         log(
-            instance=page,
-            action="wagtail.move" if url_path_changed else "wagtail.reorder",
-            user=self.user,
-            data={
-                "source": {
-                    "id": parent_before.id,
-                    "title": parent_before.specific_deferred.get_admin_display_title(),
-                },
-                "destination": {
-                    "id": parent_after.id,
-                    "title": parent_after.specific_deferred.get_admin_display_title(),
-                },
+            "wagtail.pages.move",
+            self.user,
+            page,
+            extra_data={
+                "old_url_path": old_url_path,
+                "old_path": old_path,
+                "old_depth": old_depth,
+                "new_path": page.path,
+                "new_url_path": page.url_path,
+                "new_depth": page.depth,
             },
         )
-        logger.info('Page moved: "%s" id=%d path=%s', page.title, page.id, new_url_path)
 
+        return page
     def execute(self, skip_permission_checks=False):
         if self.pos in ("first-child", "last-child", "sorted-child"):
             parent_after = self.target
